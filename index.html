@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CRM Corporativo | Dashboard SIG</title>
+    <link rel="stylesheet" href="style.css?v=3">
+</head>
+<body>
+    <section id="login-view" class="login-view">
+        <div class="login-brand">
+            <span class="eyebrow">Inteligência comercial</span>
+            <h1>CRM Corporativo</h1>
+            <p>Vendas, relacionamento e gestão financeira em uma única visão.</p>
+        </div>
+        <form id="login-form" class="login-card">
+            <div>
+                <span class="eyebrow">Acesso seguro</span>
+                <h2>Bem-vindo</h2>
+                <p>Entre com sua conta corporativa.</p>
+            </div>
+            <label>E-mail
+                <input id="login-email" type="email" value="joao@crm.local" required autocomplete="username">
+            </label>
+            <label>Senha
+                <input id="login-senha" type="password" value="Senha@123" required autocomplete="current-password">
+            </label>
+            <p id="login-error" class="form-error" role="alert"></p>
+            <button class="primary full" type="submit">Entrar no CRM</button>
+            <small>Acesso inicial: joao@crm.local / Senha@123</small>
+        </form>
+    </section>
+
+    <div id="app" class="app hidden">
+        <aside class="sidebar">
+            <div class="brand">
+                <span class="brand-mark">CC</span>
+                <div class="brand-copy"><strong>CRM Corporativo</strong><small>Dashboard SIG</small></div>
+                <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Recolher menu lateral" aria-expanded="true" title="Recolher menu">
+                    <span aria-hidden="true">&lsaquo;</span>
+                </button>
+            </div>
+            <nav id="main-nav"></nav>
+            <div class="sidebar-user">
+                <span id="user-avatar">JS</span>
+                <div class="user-copy"><strong id="user-name">Usuário</strong><small id="user-role">Perfil</small></div>
+                <button id="logout" class="icon-button" title="Sair">Sair</button>
+            </div>
+        </aside>
+
+        <main class="workspace">
+            <header class="topbar">
+                <button id="menu-toggle" class="icon-button menu-toggle">Menu</button>
+                <div>
+                    <span class="eyebrow" id="page-kicker">Visão executiva</span>
+                    <h1 id="page-title">Dashboard</h1>
+                </div>
+                <div class="top-actions">
+                    <span id="today"></span>
+                    <button id="new-record" class="primary hidden">Novo registro</button>
+                </div>
+            </header>
+            <section id="content" class="content" aria-live="polite"></section>
+        </main>
+    </div>
+
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-card">
+            <header>
+                <div><span class="eyebrow">Cadastro</span><h2 id="modal-title">Novo registro</h2></div>
+                <button id="modal-close" class="icon-button" aria-label="Fechar">Fechar</button>
+            </header>
+            <form id="record-form"></form>
+        </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="script.js?v=5"></script>
+</body>
+</html>

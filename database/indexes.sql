@@ -1,0 +1,12 @@
+CREATE INDEX IF NOT EXISTS idx_usuarios_email ON usuarios(email);
+CREATE INDEX IF NOT EXISTS idx_clientes_cpf_cnpj ON clientes(cpf_cnpj);
+CREATE INDEX IF NOT EXISTS idx_clientes_status ON clientes(status);
+CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
+CREATE INDEX IF NOT EXISTS idx_leads_origem ON leads(origem);
+CREATE INDEX IF NOT EXISTS idx_oportunidades_etapa ON oportunidades(etapa);
+CREATE INDEX IF NOT EXISTS idx_contratos_status ON contratos(status);
+CREATE INDEX IF NOT EXISTS idx_contas_receber_status ON contas_receber(status);
+CREATE INDEX IF NOT EXISTS idx_contas_receber_vencimento ON contas_receber(vencimento);
+CREATE INDEX IF NOT EXISTS idx_atividades_data_agendada ON atividades(data_agendada);
+CREATE INDEX IF NOT EXISTS idx_logs_usuario_id ON logs(usuario_id);
+CREATE INDEX IF NOT EXISTS idx_logs_tabela ON logs(tabela);
