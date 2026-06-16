@@ -157,24 +157,39 @@ class DBConnection:
         self.conn.close()
 
 
+def _ipv4_addr(hostname):
+    import socket as _sock
+    try:
+        results = _sock.getaddrinfo(hostname, None, _sock.AF_INET)
+        return results[0][4][0] if results else None
+    except _sock.gaierror:
+        return None
+
+
 def connect():
+    host = DB_HOST
+    port = DB_PORT
+    dbname = DB_NAME
+    user = DB_USER
+    password = DB_PASS
     if DB_URL:
         import urllib.parse as _up
         _u = _up.urlparse(DB_URL)
-        conn = psycopg2.connect(
-            host=_u.hostname,
-            port=_u.port or 5432,
-            dbname=_u.path.lstrip("/"),
-            user=_u.username,
-            password=_up.unquote(_u.password or ""),
-            cursor_factory=psycopg2.extras.RealDictCursor,
-        )
-    else:
-        conn = psycopg2.connect(
-            host=DB_HOST, port=DB_PORT, dbname=DB_NAME,
-            user=DB_USER, password=DB_PASS,
-            cursor_factory=psycopg2.extras.RealDictCursor,
-        )
+        host = _u.hostname
+        port = _u.port or 5432
+        dbname = _u.path.lstrip("/")
+        user = _u.username
+        password = _up.unquote(_u.password or "")
+    # Force IPv4 to avoid cross-region IPv6 issues on Vercel
+    hostaddr = _ipv4_addr(host)
+    kwargs = dict(
+        host=host, port=port, dbname=dbname,
+        user=user, password=password,
+        cursor_factory=psycopg2.extras.RealDictCursor,
+    )
+    if hostaddr:
+        kwargs["hostaddr"] = hostaddr
+    conn = psycopg2.connect(**kwargs)
     return DBConnection(conn)
 
 
@@ -300,6 +315,22 @@ class handler(BaseHTTPRequestHandler):
     def route(self, method, path, query, data, user):
         if path == "/api/health":
             return {"status": "ok", "banco": "supabase"}, 200
+        if path == "/api/dbdiag" and method == "GET":
+            import socket as _s
+            diag = {"host": DB_HOST, "port": DB_PORT, "user": DB_USER}
+            for fam, name in ((_s.AF_INET, "ipv4"), (_s.AF_UNSPEC, "all")):
+                try:
+                    diag[name] = [r[4][0] for r in _s.getaddrinfo(DB_HOST, None, fam)]
+                except Exception as e:
+                    diag[name] = str(e)
+            try:
+                with connect() as conn:
+                    diag["tables"] = [r["table_name"] for r in conn.execute(
+                        "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
+                    ).fetchall()]
+            except Exception as e:
+                diag["db_error"] = str(e)
+            return diag, 200
         if path == "/api/auth/login" and method == "POST":
             return self.login(data), 200
         if path == "/api/auth/me" and method == "GET":
