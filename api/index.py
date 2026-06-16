@@ -185,6 +185,7 @@ def connect():
     kwargs = dict(
         host=host, port=port, dbname=dbname,
         user=user, password=password,
+        sslmode="require",
         cursor_factory=psycopg2.extras.RealDictCursor,
     )
     if hostaddr:
