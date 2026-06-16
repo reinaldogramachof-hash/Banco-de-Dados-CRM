@@ -1,4 +1,9 @@
 {
+  "functions": {
+    "api/index.py": {
+      "regions": ["iad1"]
+    }
+  },
   "rewrites": [
     {
       "source": "/api/:path*",
