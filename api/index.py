@@ -14,6 +14,11 @@ from urllib.parse import parse_qs, urlparse
 
 
 DB_URL = os.getenv("DATABASE_URL")
+DB_HOST = os.getenv("PGHOST", "localhost")
+DB_PORT = int(os.getenv("PGPORT", "5432"))
+DB_NAME = os.getenv("PGDATABASE", "postgres")
+DB_USER = os.getenv("PGUSER", "postgres")
+DB_PASS = os.getenv("PGPASSWORD", "")
 HOST = os.getenv("HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8000"))
 JWT_SECRET = os.getenv("JWT_SECRET", "troque-esta-chave-em-producao").encode()
@@ -152,7 +157,23 @@ class DBConnection:
 
 
 def connect():
-    conn = psycopg2.connect(DB_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+    if DB_URL:
+        import urllib.parse as _up
+        _u = _up.urlparse(DB_URL)
+        conn = psycopg2.connect(
+            host=_u.hostname,
+            port=_u.port or 5432,
+            dbname=_u.path.lstrip("/"),
+            user=_u.username,
+            password=_up.unquote(_u.password or ""),
+            cursor_factory=psycopg2.extras.RealDictCursor,
+        )
+    else:
+        conn = psycopg2.connect(
+            host=DB_HOST, port=DB_PORT, dbname=DB_NAME,
+            user=DB_USER, password=DB_PASS,
+            cursor_factory=psycopg2.extras.RealDictCursor,
+        )
     return DBConnection(conn)
 
 
