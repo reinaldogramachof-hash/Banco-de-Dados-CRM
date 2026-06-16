@@ -316,20 +316,32 @@ class handler(BaseHTTPRequestHandler):
         if path == "/api/health":
             return {"status": "ok", "banco": "supabase"}, 200
         if path == "/api/dbdiag" and method == "GET":
-            import socket as _s
-            diag = {"host": DB_HOST, "port": DB_PORT, "user": DB_USER}
-            for fam, name in ((_s.AF_INET, "ipv4"), (_s.AF_UNSPEC, "all")):
+            regions = [
+                "us-east-1", "us-west-1", "us-west-2",
+                "sa-east-1", "eu-west-1", "eu-west-2",
+                "eu-central-1", "ap-southeast-1", "ap-northeast-1",
+            ]
+            diag = {"direct_host": DB_HOST, "pooler_results": {}}
+            for region in regions:
+                pooler_host = f"aws-0-{region}.pooler.supabase.com"
+                pooler_user = f"postgres.vdmavxyxxgsvbfurqpon"
                 try:
-                    diag[name] = [r[4][0] for r in _s.getaddrinfo(DB_HOST, None, fam)]
+                    import psycopg2 as _pg, psycopg2.extras as _pge
+                    c = _pg.connect(
+                        host=pooler_host, port=6543,
+                        dbname="postgres", user=pooler_user, password=DB_PASS,
+                        connect_timeout=5, cursor_factory=_pge.RealDictCursor,
+                    )
+                    cur = c.cursor()
+                    cur.execute("SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema='public'")
+                    n = cur.fetchone()["n"]
+                    c.close()
+                    diag["pooler_results"][region] = f"OK - {n} tabelas"
+                    diag["working_region"] = region
+                    diag["working_host"] = pooler_host
+                    break
                 except Exception as e:
-                    diag[name] = str(e)
-            try:
-                with connect() as conn:
-                    diag["tables"] = [r["table_name"] for r in conn.execute(
-                        "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
-                    ).fetchall()]
-            except Exception as e:
-                diag["db_error"] = str(e)
+                    diag["pooler_results"][region] = str(e)[:120]
             return diag, 200
         if path == "/api/auth/login" and method == "POST":
             return self.login(data), 200
