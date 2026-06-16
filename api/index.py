@@ -15,12 +15,10 @@ from urllib.parse import parse_qs, urlparse
 
 DB_URL = os.getenv("DATABASE_URL")
 DB_HOST = os.getenv("PGHOST", "localhost")
-DB_PORT = int(os.getenv("PGPORT", "5432"))
+DB_PORT = int(os.getenv("PGPORT") or "5432")
 DB_NAME = os.getenv("PGDATABASE", "postgres")
 DB_USER = os.getenv("PGUSER", "postgres")
 DB_PASS = os.getenv("PGPASSWORD", "")
-HOST = os.getenv("HOST", "127.0.0.1")
-PORT = int(os.getenv("PORT", "8000"))
 JWT_SECRET = os.getenv("JWT_SECRET", "troque-esta-chave-em-producao").encode()
 PUBLIC_PATHS = {"/api/auth/login", "/api/health"}
 
@@ -738,6 +736,8 @@ class handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    HOST = os.getenv("HOST", "127.0.0.1")
+    PORT = int(os.getenv("PORT") or "8000")
     server = ThreadingHTTPServer((HOST, PORT), handler)
     print(f"CRM Corporativo rodando em http://{HOST}:{PORT}")
     try:
