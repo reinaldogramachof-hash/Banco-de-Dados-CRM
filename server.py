@@ -4,8 +4,7 @@ import hmac
 import json
 import os
 import secrets
-import psycopg2
-import psycopg2.extras
+import sqlite3
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from http import HTTPStatus
@@ -15,7 +14,8 @@ from urllib.parse import parse_qs, urlparse
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_URL = os.getenv("DATABASE_URL")
+DB_PATH = BASE_DIR / os.getenv("DATABASE_FILE", "crm_corporativo.db")
+SCHEMA_PATH = BASE_DIR / "schema.sql"
 HOST = os.getenv("HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8000"))
 JWT_SECRET = os.getenv("JWT_SECRET", "troque-esta-chave-em-producao").encode()
@@ -127,40 +127,11 @@ class ApiError(Exception):
         super().__init__(message)
 
 
-class DBConnection:
-    def __init__(self, conn):
-        self.conn = conn
-    
-    def execute(self, query, params=None):
-        cur = self.conn.cursor()
-        if params is not None:
-            cur.execute(query, params)
-        else:
-            cur.execute(query)
-        return cur
-
-    def executescript(self, script):
-        cur = self.conn.cursor()
-        cur.execute(script)
-        return cur
-
-    def close(self):
-        self.conn.close()
-        
-    def __enter__(self):
-        return self
-        
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type is None:
-            self.conn.commit()
-        else:
-            self.conn.rollback()
-        self.conn.close()
-
 def connect():
-    conn = psycopg2.connect(DB_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-    conn.autocommit = True
-    return DBConnection(conn)
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
 
 
 def password_hash(password):
@@ -226,7 +197,7 @@ def as_dict(row):
 
 def audit(conn, user_id, table, record_id, action, before=None, after=None):
     conn.execute(
-        "INSERT INTO logs (usuario_id, tabela, registro_id, acao, dados_anteriores, dados_novos) VALUES (%s, %s, %s, %s, %s, %s)",
+        "INSERT INTO logs (usuario_id, tabela, registro_id, acao, dados_anteriores, dados_novos) VALUES (?, ?, ?, ?, ?, ?)",
         (user_id, table, str(record_id) if record_id else None, action,
          json.dumps(before, ensure_ascii=False, default=str) if before else None,
          json.dumps(after, ensure_ascii=False, default=str) if after else None),
@@ -253,7 +224,7 @@ def seed_database(conn):
     for name, email, profile in people:
         user_id = str(uuid.uuid4())
         conn.execute(
-            "INSERT INTO usuarios (id, nome, email, senha_hash, perfil_id, ativo) VALUES (%s, %s, %s, %s, %s, 1)",
+            "INSERT INTO usuarios (id, nome, email, senha_hash, perfil_id, ativo) VALUES (?, ?, ?, ?, ?, 1)",
             (user_id, name, email, password_hash("Senha@123"), profile_ids[profile]),
         )
         users[email] = user_id
@@ -264,17 +235,17 @@ def seed_database(conn):
         client_id = str(uuid.uuid4())
         clients.append(client_id)
         conn.execute(
-            "INSERT INTO clientes (id, tipo, nome, cpf_cnpj, telefone, email, segmento, status) VALUES (%s, 'PJ', %s, %s, %s, %s, %s, 'ATIVO')",
+            "INSERT INTO clientes (id, tipo, nome, cpf_cnpj, telefone, email, segmento, status) VALUES (?, 'PJ', ?, ?, ?, ?, ?, 'ATIVO')",
             (client_id, f"Empresa Corporativa {i:02d}", f"10.000.000/0001-{i:02d}", f"(11) 4000-{i:04d}",
              f"contato{i}@empresa.local", segments[(i - 1) % 4]),
         )
         conn.execute(
-            "INSERT INTO enderecos (cliente_id, cep, logradouro, numero, bairro, cidade, estado) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            "INSERT INTO enderecos (cliente_id, cep, logradouro, numero, bairro, cidade, estado) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (client_id, f"0100{i:04d}", "Avenida Corporativa", str(100 + i), "Centro", "Sao Paulo", "SP"),
         )
         for c in range(1, 3):
             conn.execute(
-                "INSERT INTO contatos (cliente_id, nome, cargo, telefone, email) VALUES (%s, %s, %s, %s, %s)",
+                "INSERT INTO contatos (cliente_id, nome, cargo, telefone, email) VALUES (?, ?, ?, ?, ?)",
                 (client_id, f"Contato {c} Empresa {i}", "Gestor" if c == 1 else "Compras",
                  f"(11) 9000-{i:02d}{c:02d}", f"contato{c}.empresa{i}@crm.local"),
             )
@@ -284,7 +255,7 @@ def seed_database(conn):
     lead_statuses = ["CONVERTIDO", "NOVO", "QUALIFICADO"]
     for i in range(1, 51):
         conn.execute(
-            "INSERT INTO leads (nome, empresa, telefone, email, origem, status, responsavel_id, cliente_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            "INSERT INTO leads (nome, empresa, telefone, email, origem, status, responsavel_id, cliente_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (f"Lead {i:02d}", f"Prospect {i:02d}", f"(21) 98888-{i:04d}", f"lead{i}@crm.local",
              origins[(i - 1) % 4], lead_statuses[(i - 1) % 3], salespeople[i % 2],
              clients[(i - 1) % len(clients)] if lead_statuses[(i - 1) % 3] == "CONVERTIDO" else None),
@@ -297,33 +268,33 @@ def seed_database(conn):
         responsible = salespeople[i % 2]
         number = f"CTR-{today.year}-{i + 1:04d}"
         conn.execute(
-            "INSERT INTO contratos (id, cliente_id, responsavel_id, numero, valor, data_inicio, data_fim, status) VALUES (%s, %s, %s, %s, %s, %s, %s, 'ATIVO')",
+            "INSERT INTO contratos (id, cliente_id, responsavel_id, numero, valor, data_inicio, data_fim, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'ATIVO')",
             (contract_id, clients[i], responsible, number, value, str(today - timedelta(days=i * 12)),
              str(today + timedelta(days=365))),
         )
         conn.execute(
-            "INSERT INTO contas_receber (cliente_id, contrato_id, valor, vencimento, pagamento, status) VALUES (%s, %s, %s, %s, %s, 'PAGO')",
+            "INSERT INTO contas_receber (cliente_id, contrato_id, valor, vencimento, pagamento, status) VALUES (?, ?, ?, ?, ?, 'PAGO')",
             (clients[i], contract_id, value, str(today - timedelta(days=i * 10)), str(today - timedelta(days=i * 10 - 2))),
         )
         conn.execute(
-            "INSERT INTO comissoes (usuario_id, contrato_id, percentual, valor) VALUES (%s, %s, 5, %s)",
+            "INSERT INTO comissoes (usuario_id, contrato_id, percentual, valor) VALUES (?, ?, 5, ?)",
             (responsible, contract_id, round(value * 0.05, 2)),
         )
         conn.execute(
-            "INSERT INTO oportunidades (cliente_id, responsavel_id, titulo, valor_estimado, etapa, probabilidade, previsao_fechamento) VALUES (%s, %s, %s, %s, 'FECHAMENTO', 100, %s)",
+            "INSERT INTO oportunidades (cliente_id, responsavel_id, titulo, valor_estimado, etapa, probabilidade, previsao_fechamento) VALUES (?, ?, ?, ?, 'FECHAMENTO', 100, ?)",
             (clients[i], responsible, f"Projeto corporativo {i + 1}", value, str(today + timedelta(days=20))),
         )
 
     for i in range(10):
         conn.execute(
-            "INSERT INTO atividades (cliente_id, usuario_id, tipo, titulo, descricao, data_agendada, status) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            "INSERT INTO atividades (cliente_id, usuario_id, tipo, titulo, descricao, data_agendada, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (clients[i], salespeople[i % 2], "REUNIAO", f"Reuniao de acompanhamento {i + 1}",
              "Revisao comercial da conta", str(datetime.now() + timedelta(days=i - 3)),
              "CONCLUIDA" if i < 2 else "PENDENTE"),
         )
 
 
-class handler(SimpleHTTPRequestHandler):
+class Handler(SimpleHTTPRequestHandler):
     server_version = "CRMCorporativo/1.0"
 
     def do_GET(self):
@@ -353,7 +324,7 @@ class handler(SimpleHTTPRequestHandler):
             self.send_json(response, status)
         except ApiError as exc:
             self.send_json({"erro": exc.message}, exc.status)
-        except psycopg2.IntegrityError as exc:
+        except sqlite3.IntegrityError as exc:
             self.send_json({"erro": self.integrity_message(exc)}, HTTPStatus.CONFLICT)
         except (ValueError, TypeError, KeyError) as exc:
             self.send_json({"erro": f"Dados invalidos: {exc}"}, HTTPStatus.BAD_REQUEST)
@@ -425,7 +396,7 @@ class handler(SimpleHTTPRequestHandler):
         password = str(data.get("senha", ""))
         with connect() as conn:
             row = conn.execute(
-                "SELECT u.*, p.nome AS perfil_nome FROM usuarios u JOIN perfis p ON p.id = u.perfil_id WHERE lower(u.email) = %s",
+                "SELECT u.*, p.nome AS perfil_nome FROM usuarios u JOIN perfis p ON p.id = u.perfil_id WHERE lower(u.email) = ?",
                 (email,),
             ).fetchone()
             if not row or not password_ok(password, row["senha_hash"]):
@@ -439,7 +410,7 @@ class handler(SimpleHTTPRequestHandler):
     def current_user(self, token_user):
         with connect() as conn:
             row = conn.execute(
-                "SELECT u.*, p.nome AS perfil_nome FROM usuarios u JOIN perfis p ON p.id = u.perfil_id WHERE u.id = %s AND u.ativo = 1",
+                "SELECT u.*, p.nome AS perfil_nome FROM usuarios u JOIN perfis p ON p.id = u.perfil_id WHERE u.id = ? AND u.ativo = 1",
                 (token_user["sub"],),
             ).fetchone()
         if not row:
@@ -455,11 +426,11 @@ class handler(SimpleHTTPRequestHandler):
         allowed = set(config.get("search", ())) | {"cliente_id", "usuario_id", "responsavel_id", "status"}
         for key, values in query.items():
             if key == "q" and values[0] and config.get("search"):
-                searchable = [f"CAST(t.{field} AS TEXT) LIKE %s" for field in config["search"]]
+                searchable = [f"CAST(t.{field} AS TEXT) LIKE ?" for field in config["search"]]
                 conditions.append(f"({' OR '.join(searchable)})")
                 params.extend([f"%{values[0]}%"] * len(searchable))
             elif key in allowed and values[0]:
-                conditions.append(f"t.{key} = %s")
+                conditions.append(f"t.{key} = ?")
                 params.append(values[0])
         where = " WHERE " + " AND ".join(conditions) if conditions else ""
         order = "t.criado_em DESC" if resource != "perfis" else "t.nome"
@@ -472,7 +443,7 @@ class handler(SimpleHTTPRequestHandler):
         table = config.get("table", resource.replace("-", "_"))
         with connect() as conn:
             row = conn.execute(
-                f"SELECT {config.get('select', 't.*')} FROM {table} t {config.get('joins', '')} WHERE t.id = %s",
+                f"SELECT {config.get('select', 't.*')} FROM {table} t {config.get('joins', '')} WHERE t.id = ?",
                 (record_id,),
             ).fetchone()
         if not row:
@@ -481,7 +452,7 @@ class handler(SimpleHTTPRequestHandler):
         if resource == "clientes":
             with connect() as conn:
                 for child in ("enderecos", "contatos", "oportunidades", "contratos", "atividades", "contas_receber"):
-                    result[child] = [as_dict(r) for r in conn.execute(f"SELECT * FROM {child} WHERE cliente_id = %s ORDER BY criado_em DESC", (record_id,))]
+                    result[child] = [as_dict(r) for r in conn.execute(f"SELECT * FROM {child} WHERE cliente_id = ? ORDER BY criado_em DESC", (record_id,))]
         return result
 
     def validate(self, resource, data, partial=False):
@@ -496,7 +467,7 @@ class handler(SimpleHTTPRequestHandler):
             if "email" in clean and ("@" not in clean["email"] or "." not in clean["email"].split("@")[-1]):
                 raise ApiError(400, "Email invalido.")
             if "ativo" in clean:
-                clean["ativo"] = True if clean["ativo"] else False
+                clean["ativo"] = 1 if clean["ativo"] else 0
         for field in config["required"]:
             if not partial and (field not in clean or clean[field] in (None, "")):
                 raise ApiError(400, f"Campo obrigatorio: {field}.")
@@ -529,11 +500,11 @@ class handler(SimpleHTTPRequestHandler):
             clean["id"] = record_id
         with connect() as conn:
             cursor = conn.execute(
-                f"INSERT INTO {table} ({', '.join(fields)}) VALUES ({', '.join('%s' for _ in fields)})",
+                f"INSERT INTO {table} ({', '.join(fields)}) VALUES ({', '.join('?' for _ in fields)})",
                 [clean[field] for field in fields],
             )
             record_id = record_id or cursor.lastrowid
-            row = conn.execute(f"SELECT * FROM {table} WHERE id = %s", (record_id,)).fetchone()
+            row = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (record_id,)).fetchone()
             audit(conn, user["sub"], table, record_id, "CREATE", after=as_dict(row))
         return self.get_one(resource, record_id)
 
@@ -544,16 +515,16 @@ class handler(SimpleHTTPRequestHandler):
         if not clean:
             raise ApiError(400, "Nenhum campo valido informado.")
         with connect() as conn:
-            before_row = conn.execute(f"SELECT * FROM {table} WHERE id = %s", (record_id,)).fetchone()
+            before_row = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (record_id,)).fetchone()
             if not before_row:
                 raise ApiError(404, "Registro nao encontrado.")
-            if "atualizado_em" in {r["column_name"] for r in conn.execute("SELECT column_name FROM information_schema.columns WHERE table_name = %s", (table,)).fetchall()}:
+            if "atualizado_em" in {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}:
                 clean["atualizado_em"] = datetime.now().isoformat(timespec="seconds")
             conn.execute(
-                f"UPDATE {table} SET {', '.join(f'{field} = %s' for field in clean)} WHERE id = %s",
+                f"UPDATE {table} SET {', '.join(f'{field} = ?' for field in clean)} WHERE id = ?",
                 [*clean.values(), record_id],
             )
-            after_row = conn.execute(f"SELECT * FROM {table} WHERE id = %s", (record_id,)).fetchone()
+            after_row = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (record_id,)).fetchone()
             action = "STATUS_CHANGE" if "status" in clean and clean["status"] != before_row["status"] else "UPDATE"
             audit(conn, user["sub"], table, record_id, action, as_dict(before_row), as_dict(after_row))
         return self.get_one(resource, record_id)
@@ -561,17 +532,17 @@ class handler(SimpleHTTPRequestHandler):
     def delete_record(self, resource, record_id, user):
         table = RESOURCES[resource].get("table", resource.replace("-", "_"))
         with connect() as conn:
-            row = conn.execute(f"SELECT * FROM {table} WHERE id = %s", (record_id,)).fetchone()
+            row = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (record_id,)).fetchone()
             if not row:
                 raise ApiError(404, "Registro nao encontrado.")
             before = as_dict(row)
-            conn.execute(f"DELETE FROM {table} WHERE id = %s", (record_id,))
+            conn.execute(f"DELETE FROM {table} WHERE id = ?", (record_id,))
             audit(conn, user["sub"], table, record_id, "DELETE", before=before)
         return {"ok": True}
 
     def convert_lead(self, lead_id, data, user):
         with connect() as conn:
-            lead = conn.execute("SELECT * FROM leads WHERE id = %s", (lead_id,)).fetchone()
+            lead = conn.execute("SELECT * FROM leads WHERE id = ?", (lead_id,)).fetchone()
             if not lead:
                 raise ApiError(404, "Lead nao encontrado.")
             if lead["status"] == "CONVERTIDO":
@@ -579,18 +550,18 @@ class handler(SimpleHTTPRequestHandler):
             client_id = str(uuid.uuid4())
             document = data.get("cpf_cnpj") or f"LEAD-{lead_id[:12]}"
             conn.execute(
-                "INSERT INTO clientes (id, tipo, nome, cpf_cnpj, telefone, email, segmento, status) VALUES (%s, %s, %s, %s, %s, %s, %s, 'ATIVO')",
+                "INSERT INTO clientes (id, tipo, nome, cpf_cnpj, telefone, email, segmento, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'ATIVO')",
                 (client_id, data.get("tipo", "PJ"), data.get("nome") or lead["empresa"] or lead["nome"],
                  document, lead["telefone"], lead["email"], data.get("segmento")),
             )
             opportunity_id = str(uuid.uuid4())
             conn.execute(
-                "INSERT INTO oportunidades (id, cliente_id, lead_id, responsavel_id, titulo, valor_estimado, etapa, probabilidade, previsao_fechamento) VALUES (%s, %s, %s, %s, %s, %s, 'QUALIFICACAO', 25, %s)",
+                "INSERT INTO oportunidades (id, cliente_id, lead_id, responsavel_id, titulo, valor_estimado, etapa, probabilidade, previsao_fechamento) VALUES (?, ?, ?, ?, ?, ?, 'QUALIFICACAO', 25, ?)",
                 (opportunity_id, client_id, lead_id, lead["responsavel_id"],
                  data.get("titulo") or f"Oportunidade - {lead['empresa'] or lead['nome']}",
                  float(data.get("valor_estimado", 0)), data.get("previsao_fechamento")),
             )
-            conn.execute("UPDATE leads SET status = 'CONVERTIDO', cliente_id = %s, atualizado_em = CURRENT_TIMESTAMP WHERE id = %s", (client_id, lead_id))
+            conn.execute("UPDATE leads SET status = 'CONVERTIDO', cliente_id = ?, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?", (client_id, lead_id))
             audit(conn, user["sub"], "leads", lead_id, "STATUS_CHANGE", as_dict(lead), {"status": "CONVERTIDO", "cliente_id": client_id})
             audit(conn, user["sub"], "clientes", client_id, "CREATE", after={"origem": "lead", "lead_id": lead_id})
         return {"cliente_id": client_id, "oportunidade_id": opportunity_id}
@@ -598,21 +569,21 @@ class handler(SimpleHTTPRequestHandler):
     def approve_proposal(self, proposal_id, data, user):
         with connect() as conn:
             proposal = conn.execute(
-                "SELECT p.*, o.cliente_id, o.responsavel_id FROM propostas p JOIN oportunidades o ON o.id = p.oportunidade_id WHERE p.id = %s",
+                "SELECT p.*, o.cliente_id, o.responsavel_id FROM propostas p JOIN oportunidades o ON o.id = p.oportunidade_id WHERE p.id = ?",
                 (proposal_id,),
             ).fetchone()
             if not proposal:
                 raise ApiError(404, "Proposta nao encontrada.")
             if proposal["status"] == "APROVADA":
-                existing = conn.execute("SELECT * FROM contratos WHERE proposta_id = %s", (proposal_id,)).fetchone()
+                existing = conn.execute("SELECT * FROM contratos WHERE proposta_id = ?", (proposal_id,)).fetchone()
                 if existing:
                     return as_dict(existing)
             contract_id = str(uuid.uuid4())
             number = self.next_contract_number(conn)
             start = data.get("data_inicio", str(date.today()))
-            conn.execute("UPDATE propostas SET status = 'APROVADA', atualizado_em = CURRENT_TIMESTAMP WHERE id = %s", (proposal_id,))
+            conn.execute("UPDATE propostas SET status = 'APROVADA', atualizado_em = CURRENT_TIMESTAMP WHERE id = ?", (proposal_id,))
             conn.execute(
-                "INSERT INTO contratos (id, cliente_id, proposta_id, responsavel_id, numero, valor, data_inicio, data_fim, status) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'ATIVO')",
+                "INSERT INTO contratos (id, cliente_id, proposta_id, responsavel_id, numero, valor, data_inicio, data_fim, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ATIVO')",
                 (contract_id, proposal["cliente_id"], proposal_id, proposal["responsavel_id"], number,
                  proposal["valor"], start, data.get("data_fim")),
             )
@@ -623,18 +594,18 @@ class handler(SimpleHTTPRequestHandler):
     def pay_receivable(self, receivable_id, data, user):
         payment_date = data.get("pagamento") or str(date.today())
         with connect() as conn:
-            before = conn.execute("SELECT * FROM contas_receber WHERE id = %s", (receivable_id,)).fetchone()
+            before = conn.execute("SELECT * FROM contas_receber WHERE id = ?", (receivable_id,)).fetchone()
             if not before:
                 raise ApiError(404, "Conta nao encontrada.")
-            conn.execute("UPDATE contas_receber SET status = 'PAGO', pagamento = %s, atualizado_em = CURRENT_TIMESTAMP WHERE id = %s", (payment_date, receivable_id))
-            after = conn.execute("SELECT * FROM contas_receber WHERE id = %s", (receivable_id,)).fetchone()
+            conn.execute("UPDATE contas_receber SET status = 'PAGO', pagamento = ?, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?", (payment_date, receivable_id))
+            after = conn.execute("SELECT * FROM contas_receber WHERE id = ?", (receivable_id,)).fetchone()
             audit(conn, user["sub"], "contas_receber", receivable_id, "STATUS_CHANGE", as_dict(before), as_dict(after))
         return self.get_one("contas-receber", receivable_id)
 
     def generate_commission(self, contract_id, data, user):
         percentage = float(data.get("percentual", 5))
         with connect() as conn:
-            contract = conn.execute("SELECT * FROM contratos WHERE id = %s", (contract_id,)).fetchone()
+            contract = conn.execute("SELECT * FROM contratos WHERE id = ?", (contract_id,)).fetchone()
             if not contract:
                 raise ApiError(404, "Contrato nao encontrado.")
             seller_id = data.get("usuario_id") or contract["responsavel_id"]
@@ -643,11 +614,11 @@ class handler(SimpleHTTPRequestHandler):
             value = round(contract["valor"] * percentage / 100, 2)
             commission_id = str(uuid.uuid4())
             conn.execute(
-                "INSERT INTO comissoes (id, usuario_id, contrato_id, percentual, valor) VALUES (%s, %s, %s, %s, %s) "
+                "INSERT INTO comissoes (id, usuario_id, contrato_id, percentual, valor) VALUES (?, ?, ?, ?, ?) "
                 "ON CONFLICT(contrato_id) DO UPDATE SET usuario_id=excluded.usuario_id, percentual=excluded.percentual, valor=excluded.valor",
                 (commission_id, seller_id, contract_id, percentage, value),
             )
-            row = conn.execute("SELECT * FROM comissoes WHERE contrato_id = %s", (contract_id,)).fetchone()
+            row = conn.execute("SELECT * FROM comissoes WHERE contrato_id = ?", (contract_id,)).fetchone()
             audit(conn, user["sub"], "comissoes", row["id"], "CREATE", after=as_dict(row))
         return as_dict(row)
 
@@ -655,7 +626,7 @@ class handler(SimpleHTTPRequestHandler):
         own = conn is None
         conn = conn or connect()
         try:
-            count = conn.execute("SELECT COUNT(*) FROM contratos WHERE numero LIKE %s", (f"CTR-{date.today().year}-%",)).fetchone()[0]
+            count = conn.execute("SELECT COUNT(*) FROM contratos WHERE numero LIKE ?", (f"CTR-{date.today().year}-%",)).fetchone()[0]
             return f"CTR-{date.today().year}-{count + 1:04d}"
         finally:
             if own:
@@ -763,8 +734,8 @@ class handler(SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    # initialize_database()
-    server = ThreadingHTTPServer((HOST, PORT), handler)
+    initialize_database()
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"CRM Corporativo rodando em http://{HOST}:{PORT}")
     print("Acesso inicial: joao@crm.local / Senha@123")
     try:
