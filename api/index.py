@@ -201,10 +201,15 @@ def password_hash(password):
 
 
 def password_ok(password, stored):
+    if not stored:
+        return False
+    # SHA-256 hex (seed data format: encode(digest(..., 'sha256'), 'hex'))
+    if "$" not in stored:
+        return hmac.compare_digest(hashlib.sha256(password.encode()).hexdigest(), stored)
     try:
         algorithm, iterations, salt, expected = stored.split("$")
         if algorithm != "pbkdf2_sha256":
-            return hmac.compare_digest(hashlib.sha256(password.encode()).hexdigest(), stored)
+            return False
         digest = hashlib.pbkdf2_hmac("sha256", password.encode(), base64.urlsafe_b64decode(salt), int(iterations))
         return hmac.compare_digest(base64.urlsafe_b64encode(digest).decode(), expected)
     except (ValueError, TypeError):
