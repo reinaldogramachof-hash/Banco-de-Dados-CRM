@@ -297,9 +297,34 @@ class handler(BaseHTTPRequestHandler):
     def do_DELETE(self):
         self.dispatch("DELETE")
 
+    def _serve_static(self, filename, content_type):
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        filepath = os.path.join(base, filename)
+        try:
+            with open(filepath, "rb") as f:
+                content = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+        except FileNotFoundError:
+            self.send_error(404)
+
     def dispatch(self, method):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
+        # Serve static frontend files
+        if method == "GET":
+            if path in ("", "/", "/index.html"):
+                self._serve_static("index.html", "text/html; charset=utf-8")
+                return
+            if path == "/style.css":
+                self._serve_static("style.css", "text/css; charset=utf-8")
+                return
+            if path == "/script.js":
+                self._serve_static("script.js", "application/javascript; charset=utf-8")
+                return
         if not path.startswith("/api/"):
             self.send_error(404)
             return
