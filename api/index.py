@@ -23,7 +23,7 @@ DB_NAME = _env("PGDATABASE", "postgres")
 DB_USER = _env("PGUSER", "postgres")
 DB_PASS = _env("PGPASSWORD")
 JWT_SECRET = _env("JWT_SECRET", "troque-esta-chave-em-producao").encode()
-PUBLIC_PATHS = {"/api/auth/login", "/api/health", "/api/dbdiag"}
+PUBLIC_PATHS = {"/api/auth/login", "/api/health"}
 
 RESOURCES = {
     "perfis": {
