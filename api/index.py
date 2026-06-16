@@ -13,13 +13,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 
-DB_URL = os.getenv("DATABASE_URL")
-DB_HOST = os.getenv("PGHOST", "localhost")
-DB_PORT = int(os.getenv("PGPORT") or "5432")
-DB_NAME = os.getenv("PGDATABASE", "postgres")
-DB_USER = os.getenv("PGUSER", "postgres")
-DB_PASS = os.getenv("PGPASSWORD", "")
-JWT_SECRET = os.getenv("JWT_SECRET", "troque-esta-chave-em-producao").encode()
+def _env(key, default=""):
+    return (os.getenv(key) or default).lstrip("﻿").strip()
+
+DB_URL = _env("DATABASE_URL")
+DB_HOST = _env("PGHOST", "localhost")
+DB_PORT = int(_env("PGPORT", "5432") or "5432")
+DB_NAME = _env("PGDATABASE", "postgres")
+DB_USER = _env("PGUSER", "postgres")
+DB_PASS = _env("PGPASSWORD")
+JWT_SECRET = _env("JWT_SECRET", "troque-esta-chave-em-producao").encode()
 PUBLIC_PATHS = {"/api/auth/login", "/api/health"}
 
 RESOURCES = {
