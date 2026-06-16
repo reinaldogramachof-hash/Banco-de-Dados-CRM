@@ -8,3 +8,7 @@ venv/
 .env
 *.db
 .vercel/
+gerar_seed.py
+seed_supabase.sql
+tests/__pycache__/
+api/__pycache__/
