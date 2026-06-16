@@ -316,32 +316,20 @@ class handler(BaseHTTPRequestHandler):
         if path == "/api/health":
             return {"status": "ok", "banco": "supabase"}, 200
         if path == "/api/dbdiag" and method == "GET":
-            regions = [
-                "us-east-1", "us-west-1", "us-west-2",
-                "sa-east-1", "eu-west-1", "eu-west-2",
-                "eu-central-1", "ap-southeast-1", "ap-northeast-1",
-            ]
-            diag = {"direct_host": DB_HOST, "pooler_results": {}}
-            for region in regions:
-                pooler_host = f"aws-0-{region}.pooler.supabase.com"
-                pooler_user = f"postgres.vdmavxyxxgsvbfurqpon"
-                try:
-                    import psycopg2 as _pg, psycopg2.extras as _pge
-                    c = _pg.connect(
-                        host=pooler_host, port=6543,
-                        dbname="postgres", user=pooler_user, password=DB_PASS,
-                        connect_timeout=5, cursor_factory=_pge.RealDictCursor,
-                    )
-                    cur = c.cursor()
-                    cur.execute("SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema='public'")
-                    n = cur.fetchone()["n"]
-                    c.close()
-                    diag["pooler_results"][region] = f"OK - {n} tabelas"
-                    diag["working_region"] = region
-                    diag["working_host"] = pooler_host
-                    break
-                except Exception as e:
-                    diag["pooler_results"][region] = str(e)[:120]
+            import socket as _s
+            diag = {"host": DB_HOST, "port": DB_PORT, "user": DB_USER}
+            # Test direct connection
+            try:
+                with connect() as conn:
+                    tables = [r["table_name"] for r in conn.execute(
+                        "SELECT table_name FROM information_schema.tables WHERE table_schema='public' ORDER BY table_name"
+                    ).fetchall()]
+                    diag["direct_connection"] = "OK"
+                    diag["tables"] = tables
+                    diag["table_count"] = len(tables)
+            except Exception as e:
+                diag["direct_connection"] = "FAIL"
+                diag["db_error"] = str(e)
             return diag, 200
         if path == "/api/auth/login" and method == "POST":
             return self.login(data), 200
