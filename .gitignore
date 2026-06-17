@@ -12,3 +12,5 @@ gerar_seed.py
 seed_supabase.sql
 tests/__pycache__/
 api/__pycache__/
+
+.vercel
