@@ -12,6 +12,13 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+try:
+    from dotenv import load_dotenv
+    _env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+    load_dotenv(_env_file)
+except (ImportError, Exception):
+    pass
+
 
 def _env(key, default=""):
     return (os.getenv(key) or default).lstrip("﻿").strip()
@@ -345,7 +352,7 @@ class handler(BaseHTTPRequestHandler):
 
     def route(self, method, path, query, data, user):
         if path == "/api/health":
-            return {"status": "ok", "banco": "supabase"}, 200
+            return {"status": "ok", "banco": "neon"}, 200
         if path == "/api/dbdiag" and method == "GET":
             import socket as _s
             diag = {"host": DB_HOST, "port": DB_PORT, "user": DB_USER}
